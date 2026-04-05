@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 ZhipuAI ASR CLI - Real-time audio transcription tool
-Usage: ZHIPUAI_API_KEY=xxx python asr_cli.py
+Usage: python asr_cli.py --api-key YOUR_KEY [--debug]
+       or: ZHIPUAI_API_KEY=xxx python asr_cli.py [--debug]
 """
 
 import io
@@ -27,11 +28,12 @@ CHUNK_DURATION = 3  # seconds per audio chunk
 def parse_args():
     parser = argparse.ArgumentParser(description="ZhipuAI ASR CLI - Real-time audio transcription")
     parser.add_argument("--api-key", "-k", type=str, help="ZhipuAI API key")
+    parser.add_argument("--debug", "-d", action="store_true", help="Enable debug output")
     return parser.parse_args()
 
 
 class ASRCLI:
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, debug: bool = False):
         self.api_key = api_key
         if not self.api_key:
             raise ValueError("API key not provided. Use --api-key or set ZHIPUAI_API_KEY")
@@ -39,6 +41,7 @@ class ASRCLI:
         self.client = ZhipuAI(api_key=self.api_key)
         self.running = True
         self.history: list[str] = []
+        self.debug = debug
 
         # Setup signal handler for clean exit
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -69,10 +72,18 @@ class ASRCLI:
         )
         sd.wait()
         print(" done")
-        return audio_data.flatten()
+        audio_data = audio_data.flatten()
+        if self.debug:
+            print(f"[DEBUG] WAV: shape={audio_data.shape}, dtype={audio_data.dtype}, "
+                  f"min={audio_data.min()}, max={audio_data.max()}, "
+                  f"mean={audio_data.mean():.2f}")
+        return audio_data
 
     def _transcribe_stream(self, wav_bytes: bytes) -> str:
         """Send audio to ASR and return transcription."""
+        if self.debug:
+            print(f"[DEBUG] Request: wav_bytes={len(wav_bytes)} bytes")
+
         response = self.client.audio.transcriptions.create(
             file=("audio.wav", wav_bytes, "audio/wav"),
             model="GLM-ASR-2512",
@@ -80,7 +91,12 @@ class ASRCLI:
         )
 
         full_text = ""
+        chunk_count = 0
+        if self.debug:
+            print("[DEBUG] Response chunks:")
         for chunk in response:
+            if self.debug:
+                print(f"  Chunk {chunk_count}: {chunk}")
             if hasattr(chunk, 'choices') and chunk.choices:
                 delta = chunk.choices[0].delta
                 if hasattr(delta, 'content'):
@@ -88,6 +104,9 @@ class ASRCLI:
                     if content:
                         print(content, end="", flush=True)
                         full_text += content
+            chunk_count += 1
+        if self.debug:
+            print(f"[DEBUG] Total chunks received: {chunk_count}")
         return full_text
 
     def run(self):
@@ -132,7 +151,7 @@ def main():
     # Prefer CLI argument, fall back to environment variable
     api_key = args.api_key or os.environ.get("ZHIPUAI_API_KEY")
     try:
-        cli = ASRCLI(api_key)
+        cli = ASRCLI(api_key, debug=args.debug)
         cli.run()
     except ValueError as e:
         print(f"Error: {e}")
