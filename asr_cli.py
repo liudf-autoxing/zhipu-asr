@@ -16,7 +16,7 @@ import time
 
 import numpy as np
 import sounddevice as sd
-import keyboard
+from pynput import keyboard
 import pyautogui
 
 from zhipuai import ZhipuAI
@@ -26,7 +26,6 @@ from zhipuai import ZhipuAI
 SAMPLE_RATE = 16000
 CHANNELS = 1
 DTYPE = 'int16'
-RCTRL_KEY = 'right ctrl'
 
 
 def parse_args():
@@ -53,6 +52,7 @@ class ASRInputMethod:
         self.running = True
         self.recording_done_event = threading.Event()
         self._processing = False
+        self._q_pressed = False
 
         signal.signal(signal.SIGINT, self._signal_handler)
 
@@ -71,17 +71,19 @@ class ASRInputMethod:
         buffer.seek(0)
         return buffer.read()
 
-    def _on_rctrl_press(self, event):
+    def _on_rctrl_press(self, key):
         """Called when RightCtrl is pressed."""
-        if event.name == RCTRL_KEY and not self.is_recording:
+        if key == keyboard.Key.ctrl_r and not self.is_recording:
             self.is_recording = True
             self.recording_frames = []
             print("\nRecording... (release RCtrl to send)", flush=True)
             self._start_recording_thread()
+        elif key == keyboard.KeyCode.from_char('q'):
+            self._q_pressed = True
 
-    def _on_rctrl_release(self, event):
+    def _on_rctrl_release(self, key):
         """Called when RightCtrl is released."""
-        if event.name == RCTRL_KEY and self.is_recording:
+        if key == keyboard.Key.ctrl_r and self.is_recording:
             self.is_recording = False
             self.recording_done_event.set()
             print("\nProcessing...", flush=True)
@@ -161,9 +163,12 @@ class ASRInputMethod:
         print("Press 'q' to quit")
         print("-" * 50)
 
-        # Register key hooks
-        keyboard.on_press(self._on_rctrl_press)
-        keyboard.on_release(self._on_rctrl_release)
+        # Start pynput keyboard listener
+        listener = keyboard.Listener(
+            on_press=self._on_rctrl_press,
+            on_release=self._on_rctrl_release
+        )
+        listener.start()
 
         # Main loop
         while self.running:
@@ -176,7 +181,7 @@ class ASRInputMethod:
                 print("Listening... (press RCtrl to input)", flush=True)
 
             # Handle q to quit
-            if keyboard.is_pressed('q'):
+            if self._q_pressed:
                 self.running = False
                 break
 
@@ -184,7 +189,7 @@ class ASRInputMethod:
         if hasattr(self, 'recording_thread') and self.recording_thread.is_alive():
             self.recording_thread.join(timeout=1.0)
 
-        keyboard.unhook_all()
+        listener.stop()
 
     def process_recording_and_type(self):
         """Called after RCtrl is released to process and type."""
