@@ -130,7 +130,7 @@ class ASRInputMethod:
 
         response = self.client.audio.transcriptions.create(
             file=("audio.wav", wav_bytes, "audio/wav"),
-            model="GLM-ASR-2512",
+            model="cosyvoice-v2",
             stream=True
         )
 
