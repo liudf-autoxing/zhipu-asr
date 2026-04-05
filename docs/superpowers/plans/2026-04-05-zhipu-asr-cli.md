@@ -1,3 +1,50 @@
+# Zhipu ASR CLI Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Build a CLI tool that records audio from microphone and streams transcription results from ZhipuAI ASR in real-time.
+
+**Architecture:** Single-file CLI that uses sounddevice to continuously record audio in chunks, sends each chunk to ZhipuAI's `/audio/transcriptions` API with streaming enabled, and displays transcriptions with rolling history.
+
+**Tech Stack:** Python 3, sounddevice, numpy, zhipuai SDK
+
+---
+
+## File Structure
+
+```
+/home/wurong/workspace/zhipu/
+├── asr_cli.py              # Main CLI application
+├── requirements.txt        # Dependencies (sounddevice, numpy)
+└── docs/superpowers/plans/2026-04-05-zhipu-asr-cli.md  # This plan
+```
+
+---
+
+## Task 1: Create requirements.txt
+
+**Files:**
+- Create: `/home/wurong/workspace/zhipu/requirements.txt`
+
+- [ ] **Step 1: Create requirements.txt**
+
+```txt
+sounddevice
+numpy
+```
+
+- [ ] **Step 2: Commit**
+
+---
+
+## Task 2: Implement asr_cli.py
+
+**Files:**
+- Create: `/home/wurong/workspace/zhipu/asr_cli.py`
+
+- [ ] **Step 1: Write the complete CLI implementation**
+
+```python
 #!/usr/bin/env python3
 """
 ZhipuAI ASR CLI - Real-time audio transcription tool
@@ -9,7 +56,7 @@ import signal
 import sys
 import wave
 import os
-import argparse
+from typing import Optional
 
 import numpy as np
 import sounddevice as sd
@@ -24,17 +71,11 @@ DTYPE = 'int16'
 CHUNK_DURATION = 3  # seconds per audio chunk
 
 
-def parse_args():
-    parser = argparse.ArgumentParser(description="ZhipuAI ASR CLI - Real-time audio transcription")
-    parser.add_argument("--api-key", "-k", type=str, help="ZhipuAI API key")
-    return parser.parse_args()
-
-
 class ASRCLI:
-    def __init__(self, api_key: str):
-        self.api_key = api_key
+    def __init__(self):
+        self.api_key = os.environ.get("ZHIPUAI_API_KEY")
         if not self.api_key:
-            raise ValueError("API key not provided. Use --api-key or set ZHIPUAI_API_KEY")
+            raise ValueError("ZHIPUAI_API_KEY environment variable not set")
 
         self.client = ZhipuAI(api_key=self.api_key)
         self.running = True
@@ -43,7 +84,7 @@ class ASRCLI:
         # Setup signal handler for clean exit
         signal.signal(signal.SIGINT, self._signal_handler)
 
-    def _signal_handler(self, _signum, _frame):
+    def _signal_handler(self, signum, frame):
         print("\n\nStopping...")
         self.running = False
 
@@ -75,7 +116,7 @@ class ASRCLI:
         """Send audio to ASR and return transcription."""
         response = self.client.audio.transcriptions.create(
             file=("audio.wav", wav_bytes, "audio/wav"),
-            model="GLM-ASR-2512",
+            model="cosyvoice-v2",
             stream=True
         )
 
@@ -128,11 +169,8 @@ class ASRCLI:
 
 
 def main():
-    args = parse_args()
-    # Prefer CLI argument, fall back to environment variable
-    api_key = args.api_key or os.environ.get("ZHIPUAI_API_KEY")
     try:
-        cli = ASRCLI(api_key)
+        cli = ASRCLI()
         cli.run()
     except ValueError as e:
         print(f"Error: {e}")
@@ -141,3 +179,34 @@ def main():
 
 if __name__ == "__main__":
     main()
+```
+
+- [ ] **Step 2: Test import**
+
+Run: `python3 -c "import sounddevice, numpy; print('Dependencies OK')"`
+
+- [ ] **Step 3: Test with --help or simple validation**
+
+Run: `python3 asr_cli.py 2>&1 | head -5`
+Expected: Error about missing API key (expected behavior)
+
+- [ ] **Step 4: Commit**
+
+---
+
+## Verification
+
+**Test the CLI:**
+```bash
+pip install -r requirements.txt
+ZHIPUAI_API_KEY=your_key python asr_cli.py
+```
+
+Speak into your microphone - you should see transcription appear in real-time.
+
+**Expected behavior:**
+1. Records 3-second audio chunks
+2. Sends each chunk to ZhipuAI ASR API
+3. Streams and displays transcription results
+4. Maintains history of all transcriptions
+5. Clean exit on Ctrl+C with summary
