@@ -130,7 +130,7 @@ class ASRInputMethod:
 
         response = self.client.audio.transcriptions.create(
             file=("audio.wav", wav_bytes, "audio/wav"),
-            model="cosyvoice-v2",
+            model="GLM-ASR-2512",
             stream=True
         )
 
@@ -138,10 +138,15 @@ class ASRInputMethod:
         for chunk in response:
             if self.debug:
                 print(f"[DEBUG] Chunk: {chunk}")
-            if hasattr(chunk, 'choices') and chunk.choices:
-                delta = chunk.choices[0].delta
-                if hasattr(delta, 'content') and delta.content:
-                    full_text += delta.content
+            chunk_type = getattr(chunk, 'type', None)
+            if chunk_type == 'transcript.text_delta':
+                delta = getattr(chunk, 'delta', None)
+                if delta:
+                    full_text += delta
+            elif chunk_type == 'transcript.text.done':
+                text = getattr(chunk, 'text', None)
+                if text:
+                    full_text = text
         return full_text
 
     def _type_text(self, text: str):
