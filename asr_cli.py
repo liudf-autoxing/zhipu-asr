@@ -149,13 +149,15 @@ class ASRInputMethod:
         return full_text
 
     def _type_text(self, text: str):
-        """Type text into the focused window using ydotool."""
+        """Type text into the focused window via clipboard + Ctrl+Shift+V."""
         if not text:
             print("No text to type")
             return
         try:
+            import pyperclip
             import subprocess
-            subprocess.run(["ydotool", "type", "--", text], check=True)
+            pyperclip.copy(text)
+            subprocess.run(["ydotool", "key", "ctrl:down", "shift:down", "v:click", "ctrl:up", "shift:up"], check=True)
             print(f"Typed: {text}")
         except Exception as e:
             print(f"Error: {e}")
