@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-ZhipuAI ASR CLI - Real-time audio transcription tool
-Usage: python asr_cli.py --api-key YOUR_KEY [--debug]
-       or: ZHIPUAI_API_KEY=xxx python asr_cli.py [--debug]
+ZhipuAI ASR Input Method - Voice input via RightCtrl
+Usage: python asr_cli.py --api-key YOUR_KEY
+       or: ZHIPUAI_API_KEY=xxx python asr_cli.py
 """
 
 import io
@@ -11,9 +11,13 @@ import sys
 import wave
 import os
 import argparse
+import threading
+import time
 
 import numpy as np
 import sounddevice as sd
+import keyboard
+import pyautogui
 
 from zhipuai import ZhipuAI
 
@@ -22,64 +26,93 @@ from zhipuai import ZhipuAI
 SAMPLE_RATE = 16000
 CHANNELS = 1
 DTYPE = 'int16'
-CHUNK_DURATION = 3  # seconds per audio chunk
+RCTRL_KEY = 'right ctrl'
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="ZhipuAI ASR CLI - Real-time audio transcription")
+    parser = argparse.ArgumentParser(description="ZhipuAI ASR Input Method")
     parser.add_argument("--api-key", "-k", type=str, help="ZhipuAI API key")
     parser.add_argument("--debug", "-d", action="store_true", help="Enable debug output")
     return parser.parse_args()
 
 
-class ASRCLI:
+class ASRInputMethod:
     def __init__(self, api_key: str, debug: bool = False):
         self.api_key = api_key
         if not self.api_key:
             raise ValueError("API key not provided. Use --api-key or set ZHIPUAI_API_KEY")
 
         self.client = ZhipuAI(api_key=self.api_key)
-        self.running = True
-        self.history: list[str] = []
         self.debug = debug
 
-        # Setup signal handler for clean exit
+        self.is_recording = False
+        self.recording_frames: list[np.ndarray] = []
+        self.recording_lock = threading.Lock()
+        self.audio_buffer = []  # Will hold recorded audio chunks
+
+        self.running = True
+
         signal.signal(signal.SIGINT, self._signal_handler)
 
     def _signal_handler(self, _signum, _frame):
-        print("\n\nStopping...")
+        print("\n\nExiting...")
         self.running = False
+        sys.exit(0)
 
     def _create_wav_bytes(self, audio_data: np.ndarray) -> bytes:
         """Convert numpy audio array to WAV bytes."""
         buffer = io.BytesIO()
         with wave.open(buffer, 'wb') as wf:
             wf.setnchannels(CHANNELS)
-            wf.setsampwidth(2)  # 16-bit
+            wf.setsampwidth(2)
             wf.setframerate(SAMPLE_RATE)
             wf.writeframes(audio_data.tobytes())
         buffer.seek(0)
         return buffer.read()
 
-    def _record_chunk(self, duration: int) -> np.ndarray:
-        """Record audio chunk from microphone."""
-        print(f"Recording {duration}s...", end="", flush=True)
-        audio_data = sd.rec(
-            frames=duration * SAMPLE_RATE,
+    def _on_rctrl_press(self, event):
+        """Called when RightCtrl is pressed."""
+        if event.name == RCTRL_KEY and not self.is_recording:
+            self.is_recording = True
+            self.recording_frames = []
+            print("\nRecording... (release RCtrl to send)", flush=True)
+            self._start_recording_thread()
+
+    def _on_rctrl_release(self, event):
+        """Called when RightCtrl is released."""
+        if event.name == RCTRL_KEY and self.is_recording:
+            self.is_recording = False
+            print("\nProcessing...", flush=True)
+            # Transcription runs in main thread after recording stops
+
+    def _recording_thread_target(self):
+        """Records audio in a loop while is_recording is True."""
+        stream = sd.InputStream(
             samplerate=SAMPLE_RATE,
             channels=CHANNELS,
             dtype=DTYPE
         )
-        sd.wait()
-        print(" done")
-        audio_data = audio_data.flatten()
-        if self.debug:
-            print(f"[DEBUG] WAV: shape={audio_data.shape}, dtype={audio_data.dtype}, "
-                  f"min={audio_data.min()}, max={audio_data.max()}, "
-                  f"mean={audio_data.mean():.2f}")
-        return audio_data
+        with stream:
+            while self.is_recording and self.running:
+                frames, _ = stream.read(int(SAMPLE_RATE * 0.1))  # Read 100ms chunks
+                with self.recording_lock:
+                    self.recording_frames.append(frames.copy())
 
-    def _transcribe_stream(self, wav_bytes: bytes) -> str:
+    def _start_recording_thread(self):
+        self.recording_thread = threading.Thread(
+            target=self._recording_thread_target,
+            daemon=True
+        )
+        self.recording_thread.start()
+
+    def _get_recorded_audio(self) -> np.ndarray:
+        """Get all recorded frames as a single numpy array."""
+        with self.recording_lock:
+            if not self.recording_frames:
+                return np.array([], dtype=DTYPE)
+            return np.concatenate(self.recording_frames)
+
+    def _transcribe(self, wav_bytes: bytes) -> str:
         """Send audio to ASR and return transcription."""
         if self.debug:
             print(f"[DEBUG] Request: wav_bytes={len(wav_bytes)} bytes")
@@ -91,68 +124,83 @@ class ASRCLI:
         )
 
         full_text = ""
-        chunk_count = 0
-        if self.debug:
-            print("[DEBUG] Response chunks:")
         for chunk in response:
             if self.debug:
-                print(f"  Chunk {chunk_count}: {chunk}")
+                print(f"[DEBUG] Chunk: {chunk}")
             if hasattr(chunk, 'choices') and chunk.choices:
                 delta = chunk.choices[0].delta
-                if hasattr(delta, 'content'):
-                    content = delta.content
-                    if content:
-                        print(content, end="", flush=True)
-                        full_text += content
-            chunk_count += 1
-        if self.debug:
-            print(f"[DEBUG] Total chunks received: {chunk_count}")
+                if hasattr(delta, 'content') and delta.content:
+                    full_text += delta.content
         return full_text
 
+    def _type_text(self, text: str):
+        """Type text into the focused window."""
+        if not text:
+            print("No text to type")
+            return
+        try:
+            pyautogui.typewrite(text, interval=0.01)
+            print(f"Typed: {text}")
+        except Exception as e:
+            print(f"Error: {e}")
+
     def run(self):
-        """Main loop: record, transcribe, display, repeat."""
-        print(f"ZhipuAI ASR CLI - Recording {CHUNK_DURATION}s chunks")
-        print(f"Sample rate: {SAMPLE_RATE}Hz, Channels: {CHANNELS}, Format: {DTYPE}")
-        print("Press Ctrl+C to stop\n")
+        """Main loop: listen for RCtrl key events."""
+        print("ZhipuAI ASR Input Method")
+        print(f"Sample rate: {SAMPLE_RATE}Hz, Channels: {CHANNELS}")
+        print(f"Press and hold RightCtrl to record, release to input")
+        print("Press 'q' to quit")
         print("-" * 50)
 
+        # Register key hooks
+        keyboard.on_press(self._on_rctrl_press)
+        keyboard.on_release(self._on_rctrl_release)
+
+        # Status display loop
+        last_status_time = 0
         while self.running:
-            try:
-                # Record audio chunk
-                audio_data = self._record_chunk(CHUNK_DURATION)
+            time.sleep(0.05)  # Sleep to prevent busy loop
 
-                # Convert to WAV
-                wav_bytes = self._create_wav_bytes(audio_data)
-
-                # Transcribe
-                print(f"[{len(self.history) + 1}] ", end="", flush=True)
-                text = self._transcribe_stream(wav_bytes)
-
-                if text:
-                    self.history.append(text)
-                    print()  # Newline after transcription
-                else:
-                    print(" [no speech detected]")
-
-            except Exception as e:
-                print(f"\nError: {e}")
+            # Check if recording just stopped - process transcription in main thread
+            # This is signaled by is_recording becoming False
+            if hasattr(self, '_processing') and self._processing:
                 continue
 
-        # Print final history
-        print("\n" + "=" * 50)
-        print("TRANSCRIPTION HISTORY:")
-        print("=" * 50)
-        for i, text in enumerate(self.history, 1):
-            print(f"{i}. {text}")
+            # Handle q to quit
+            if keyboard.is_pressed('q'):
+                self.running = False
+                break
+
+        keyboard.unhook_all()
+
+    def process_recording_and_type(self):
+        """Called after RCtrl is released to process and type."""
+        self._processing = True
+        try:
+            audio_data = self._get_recorded_audio()
+            if len(audio_data) == 0:
+                print("No audio recorded")
+                return
+
+            if self.debug:
+                print(f"[DEBUG] Recorded {len(audio_data)} samples")
+
+            wav_bytes = self._create_wav_bytes(audio_data)
+            text = self._transcribe(wav_bytes)
+            if text:
+                self._type_text(text)
+            else:
+                print("No speech detected")
+        finally:
+            self._processing = False
 
 
 def main():
     args = parse_args()
-    # Prefer CLI argument, fall back to environment variable
     api_key = args.api_key or os.environ.get("ZHIPUAI_API_KEY")
     try:
-        cli = ASRCLI(api_key, debug=args.debug)
-        cli.run()
+        im = ASRInputMethod(api_key, debug=args.debug)
+        im.run()
     except ValueError as e:
         print(f"Error: {e}")
         sys.exit(1)
