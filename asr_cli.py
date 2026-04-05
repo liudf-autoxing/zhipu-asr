@@ -97,6 +97,8 @@ class ASRInputMethod:
         with stream:
             while self.is_recording and self.running:
                 frames, _ = stream.read(int(SAMPLE_RATE * 0.1))  # Read 100ms chunks
+                if self.debug:
+                    print(f"[DEBUG] Read frames: shape={frames.shape}")
                 with self.recording_lock:
                     self.recording_frames.append(frames.copy())
 
@@ -189,6 +191,8 @@ class ASRInputMethod:
         self._processing = True
         try:
             audio_data = self._get_recorded_audio()
+            if self.debug:
+                print(f"[DEBUG] Processing {len(audio_data)} samples")
             if len(audio_data) == 0:
                 print("No audio recorded")
                 return
