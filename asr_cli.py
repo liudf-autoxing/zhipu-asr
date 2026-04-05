@@ -17,7 +17,6 @@ import time
 import numpy as np
 import sounddevice as sd
 from pynput import keyboard
-import pyautogui
 
 from zhipuai import ZhipuAI
 
@@ -150,12 +149,13 @@ class ASRInputMethod:
         return full_text
 
     def _type_text(self, text: str):
-        """Type text into the focused window."""
+        """Type text into the focused window using ydotool."""
         if not text:
             print("No text to type")
             return
         try:
-            pyautogui.typewrite(text, interval=0.01)
+            import subprocess
+            subprocess.run(["ydotool", "type", "--", text], check=True)
             print(f"Typed: {text}")
         except Exception as e:
             print(f"Error: {e}")
