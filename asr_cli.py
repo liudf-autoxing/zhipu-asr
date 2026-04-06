@@ -147,8 +147,6 @@ class ASRInputMethod:
             "model": "GLM-ASR-2512",
             "stream": True
         }
-        if self.hotwords:
-            kwargs["hotwords"] = self.hotwords
         if self.prompt:
             kwargs["prompt"] = self.prompt
 
