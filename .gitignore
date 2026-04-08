@@ -1,3 +1,8 @@
 __pycache__/
 log/
 config.yaml
+build/
+dist/
+*.spec
+*.AppImage
+package/

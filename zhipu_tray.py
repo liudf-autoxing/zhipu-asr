@@ -13,8 +13,15 @@ from PySide6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
 from PySide6.QtGui import QIcon, QAction, QPainter, QPixmap, QColor
 from PySide6.QtCore import QTimer
 
+# PyInstaller 兼容：获取资源目录
+def get_base_dir():
+    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+        # PyInstaller 打包后的路径
+        return Path(sys._MEIPASS)
+    return Path(__file__).parent
+
 # 添加项目根目录到 path
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(get_base_dir()))
 
 from asr_engine import ASREngine, ASRState
 from ui.main_window import MainWindow
@@ -58,9 +65,9 @@ class ZhipuTray:
         self.app.setQuitOnLastWindowClosed(False)
 
         # 加载图标
-        base_dir = Path(__file__).parent
-        idle_icon_path = base_dir / "assets" / "icons" / "mic_idle.svg"
-        recording_icon_path = base_dir / "assets" / "icons" / "mic_recording.svg"
+        base_dir = get_base_dir()
+        idle_icon_path = base_dir / "assets" / "icons" / "mic_idle.png"
+        recording_icon_path = base_dir / "assets" / "icons" / "mic_recording.png"
 
         self.animated_icon = AnimatedIcon(
             str(idle_icon_path),
@@ -88,7 +95,7 @@ class ZhipuTray:
 
         # 创建系统托盘
         self.tray = QSystemTrayIcon()
-        self.tray.setIcon(self.animated_icon.idle_pixmap)
+        self.tray.setIcon(QIcon(self.animated_icon.idle_pixmap))
         self.tray.setToolTip("Zhipu 语音输入")
         self.tray.activated.connect(self._on_tray_activated)
         self._create_tray_menu()
@@ -158,17 +165,17 @@ class ZhipuTray:
 
         if state == ASRState.RECORDING:
             self._start_animation()
-            self.tray.setIcon(self.animated_icon.recording_pixmap)
+            self.tray.setIcon(QIcon(self.animated_icon.recording_pixmap))
             self._processing_called = False
         elif state == ASRState.PROCESSING:
             self._stop_animation()
-            self.tray.setIcon(self.animated_icon.idle_pixmap)
+            self.tray.setIcon(QIcon(self.animated_icon.idle_pixmap))
             if not self._processing_called:
                 self._processing_called = True
                 self.engine.process_recording_and_type()
         elif state == ASRState.LISTENING:
             self._stop_animation()
-            self.tray.setIcon(self.animated_icon.idle_pixmap)
+            self.tray.setIcon(QIcon(self.animated_icon.idle_pixmap))
 
     def _on_asr_result(self, text: str):
         self.main_window.append_log(f"[识别] {text}")
@@ -195,7 +202,7 @@ class ZhipuTray:
     def _update_animation(self):
         self._animation_progress = (self._animation_progress + 0.1) % 1.0
         self.animated_icon._animation_progress = self._animation_progress
-        self.tray.setIcon(self.animated_icon.get_current_pixmap())
+        self.tray.setIcon(QIcon(self.animated_icon.get_current_pixmap()))
 
     def run(self):
         self.engine.start()
