@@ -1,5 +1,7 @@
 # zhipu-asr
 
+> **目前仅支持 Linux 系统**
+
 Linux 语音输入法——基于智谱 AI GLM-ASR API，按住右 Ctrl 说话，识别结果自动输入到焦点窗口。
 
 ## 快速开始
