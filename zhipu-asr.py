@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Zhipu Tray - 系统托盘 + 主窗口
-Usage: python zhipu_tray.py --api-key YOUR_KEY
+Zhipu ASR - Linux 语音输入法
+Usage: python zhipu-asr.py --api-key YOUR_KEY
 """
 
 import os
@@ -54,9 +54,23 @@ class AnimatedIcon(QIcon):
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="ZhipuAI ASR Tray")
+    parser = argparse.ArgumentParser(description="ZhipuAI ASR")
     parser.add_argument("--api-key", "-k", type=str, help="ZhipuAI API key")
+    parser.add_argument("--console", action="store_true", default=False,
+                        help="显示控制台输出（默认无控制台）")
     return parser.parse_args()
+
+
+def setup_console(console_mode: bool):
+    """配置控制台输出模式"""
+    if not console_mode:
+        # 静默模式：重定向到 devnull
+        sys.stdout = open(os.devnull, 'w')
+        sys.stderr = open(os.devnull, 'w')
+    else:
+        # 恢复标准输出
+        sys.stdout = sys.__stdout__
+        sys.stderr = sys.__stderr__
 
 
 class ZhipuTray:
@@ -216,6 +230,10 @@ class ZhipuTray:
 
 def main():
     args = parse_args()
+
+    # 控制台模式设置（默认无控制台）
+    setup_console(args.console)
+
     api_key = args.api_key or os.environ.get("ZHIPUAI_API_KEY")
     tray = ZhipuTray(api_key=api_key)
     tray.run()
