@@ -1,41 +1,78 @@
-# ZhipuAI ASR 输入法
+# zhipu-asr
 
-Linux 语音输入法——按住右Ctrl说话，识别结果自动输入到焦点窗口。
+Linux 语音输入法——基于智谱 AI GLM-ASR API，按住右 Ctrl 说话，识别结果自动输入到焦点窗口。
 
-## 功能
+## 快速开始
 
-- 按住 **右Ctrl** 开始录音
-- 松开 **右Ctrl** 发送识别，结果自动输入
-- 剪贴板 + `Ctrl+Shift+V` 粘贴（Wayland/X11 兼容）
-
-## 安装
+### 1. 安装依赖
 
 ```bash
 pip install -r requirements.txt
 ```
 
-## 使用
+### 2. 获取 API Key
+
+前往 [智谱 AI 开放平台](https://open.bigmodel.cn/) 注册并获取 API Key。
+
+### 3. 运行
 
 ```bash
-python asr_cli.py -k YOUR_API_KEY
+python zhipu_tray.py --api-key YOUR_API_KEY
 ```
 
 或设置环境变量：
 
 ```bash
 export ZHIPUAI_API_KEY=your_key
-python asr_cli.py
+python zhipu_tray.py
 ```
 
-## 选项
+### 4. 使用
 
-- `-k, --api-key` API密钥
-- `-d, --debug` 调试模式
+- **按住右 Ctrl** → 开始录音
+- **松开右 Ctrl** → 停止录音，识别结果自动输入到焦点窗口
 
-## 依赖
+## 快捷键
 
-- sounddevice
-- numpy
-- pynput（按键监听，无需root）
-- pyperclip（剪贴板）
-- pyautogui（模拟按键）
+| 按键 | 功能 |
+|------|------|
+| 右 Ctrl（按住） | 开始录音 |
+| 右 Ctrl（松开） | 停止录音并识别 |
+
+## 配置
+
+首次运行后，配置保存在 `~/.config/zhipu/config.yaml`。
+
+可用配置项：
+
+```yaml
+hotwords:
+  - Python
+  - Linux
+
+prompt: "用户正在讨论技术问题"
+```
+
+## 命令行选项
+
+- `-k, --api-key` - 智谱 AI API Key
+
+## 项目结构
+
+```
+zhipu-asr/
+├── zhipu_tray.py      # 主入口（系统托盘 + 主窗口）
+├── asr_engine.py      # ASR 核心引擎
+├── ui/
+│   ├── main_window.py # 主窗口 UI
+│   └── styles.py      # 样式表
+├── assets/
+│   └── icons/         # 图标资源
+├── config.yaml.example # 配置示例
+├── requirements.txt
+└── LICENSE            # MIT License
+```
+
+## License
+
+MIT
