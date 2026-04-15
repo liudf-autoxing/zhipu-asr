@@ -24,6 +24,7 @@ import yaml
 SAMPLE_RATE = 16000
 CHANNELS = 1
 DTYPE = 'int16'
+MAX_RECORDING_DURATION = 30  # 最大录音时长（秒）
 
 
 class ASRState(Enum):
@@ -160,6 +161,7 @@ class ASREngine:
             self._target_window = self._get_target_window()
             self._is_recording = True
             self._recording_frames = []
+            self._recording_start_time = time.time()  # 记录开始时间
             self.set_state(ASRState.RECORDING)
             self._start_recording_thread()
 
@@ -173,6 +175,14 @@ class ASREngine:
         stream = sd.InputStream(samplerate=SAMPLE_RATE, channels=CHANNELS, dtype=DTYPE)
         with stream:
             while self._is_recording and self._running:
+                # 检查录音时长
+                elapsed = time.time() - self._recording_start_time
+                if elapsed >= MAX_RECORDING_DURATION:
+                    print(f"[警告] 录音已达 {MAX_RECORDING_DURATION}s 上限，自动停止")
+                    self._is_recording = False
+                    self.set_state(ASRState.PROCESSING)
+                    break
+
                 frames, _ = stream.read(int(SAMPLE_RATE * 0.1))
                 with self._recording_lock:
                     self._recording_frames.append(frames.copy())
@@ -235,8 +245,11 @@ class ASREngine:
             # 释放残留修饰符
             subprocess.run(['xdotool', 'keyup', 'ctrl', 'shift', 'alt'], check=False)
 
-            # 直接输入文本，绕过剪贴板和热键
-            subprocess.run(['xdotool', 'type', '--', text], check=True)
+            # 使用 PySide6 剪贴板 + Ctrl+V 整段粘贴
+            from PySide6.QtGui import QGuiApplication
+            QGuiApplication.clipboard().setText(text)
+            time.sleep(0.05)
+            subprocess.run(["xdotool", "key", "ctrl+v"], check=True)
         except Exception as e:
             print(f"Type error: {e}")
 
