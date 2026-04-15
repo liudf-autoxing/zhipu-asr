@@ -6,6 +6,7 @@ ASR Engine - 封装 asr_cli.py 的核心逻辑
 import io
 import json
 import signal
+import subprocess
 import wave
 import threading
 import time
@@ -68,6 +69,7 @@ class ASREngine:
         self._running = False
         self._recording_done_event = None
         self._listener = None
+        self._target_window = None  # 录音前记录目标窗口
 
         signal.signal(signal.SIGINT, self._signal_handler)
 
@@ -129,8 +131,33 @@ class ASREngine:
         buffer.seek(0)
         return buffer.read()
 
+    def _save_debug_wav(self, wav_bytes: bytes):
+        """debug 模式下保存 WAV 文件"""
+        import os
+        from datetime import datetime
+        log_dir = os.path.expanduser("~/.local/share/zhipu-asr/debug")
+        os.makedirs(log_dir, exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        path = os.path.join(log_dir, f"{ts}.wav")
+        with open(path, "wb") as f:
+            f.write(wav_bytes)
+        print(f"[debug] WAV saved: {path} ({len(wav_bytes)} bytes)")
+
+    def _get_target_window(self) -> Optional[int]:
+        """获取当前活动窗口 ID"""
+        try:
+            result = subprocess.run(
+                ['xdotool', 'getactivewindow'],
+                capture_output=True, text=True, check=True
+            )
+            return int(result.stdout.strip())
+        except Exception:
+            return None
+
     def _on_rctrl_press(self, key):
         if key == keyboard.Key.ctrl_r and not self._is_recording:
+            # 记录目标窗口（粘贴时需要切回）
+            self._target_window = self._get_target_window()
             self._is_recording = True
             self._recording_frames = []
             self.set_state(ASRState.RECORDING)
@@ -197,10 +224,19 @@ class ASREngine:
         if not text:
             return
         try:
-            import pyperclip
-            import pyautogui
-            pyperclip.copy(text)
-            pyautogui.hotkey('ctrl', 'shift', 'v')
+            # 切回录音前的目标窗口
+            if self._target_window:
+                subprocess.run(
+                    ['xdotool', 'windowactivate', '--sync', str(self._target_window)],
+                    check=False
+                )
+                time.sleep(0.1)
+
+            # 释放残留修饰符
+            subprocess.run(['xdotool', 'keyup', 'ctrl', 'shift', 'alt'], check=False)
+
+            # 直接输入文本，绕过剪贴板和热键
+            subprocess.run(['xdotool', 'type', '--', text], check=True)
         except Exception as e:
             print(f"Type error: {e}")
 
@@ -229,6 +265,10 @@ class ASREngine:
             return
 
         wav_bytes = self._create_wav_bytes(audio_data)
+
+        if self.debug:
+            self._save_debug_wav(wav_bytes)
+
         text = self._transcribe(wav_bytes)
 
         if text:
